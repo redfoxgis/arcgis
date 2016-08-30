@@ -1,0 +1,35 @@
+import arcpy
+
+def select_dissolve_fishnet(infc, outfc, distance):
+    """
+    Generates a dissolved fishnet polygon intersecting an AOI
+    Parameters:
+    infc: the area of interest polygon
+    outfc: the dissolved output fishnet polygon
+    distance: the distance in meters making up the length and width of the fishnet cells
+              this will be in map units (e.g. meters)
+    """
+    extent = arcpy.Describe(fc).extent
+    xmax = extent.XMax
+    xmin = extent.XMin
+    ymax = extent.YMax
+    ymin = extent.YMin
+
+    origin = '{0} {1}'.format(xmin, ymin)
+    y_axis_coord = '{0} {1}'.format(xmin, ymax)
+    corner = '{0} {1}'.format(xmax, ymax)
+
+    arcpy.CreateFishnet_management("in_memory/fishnet", origin, y_axis_coord, cell_width = distance, cell_height = distance, corner_coord = corner, geometry_type = "POLYGON")
+
+    # Select fishnet by location
+    arcpy.MakeFeatureLayer_management("in_memory/fishnet", "fishnet_lyr")
+    arcpy.SelectLayerByLocation_management(in_layer = "fishnet_lyr", overlap_type = "INTERSECT", select_features = fc, selection_type = "NEW_SELECTION")
+
+    # Dissolve selected fishnet
+    arcpy.Dissolve_management("fishnet_lyr", outfc)
+
+if __name__ == "__main__":
+    infc = r'C:\path\to\your\in_shapefile.shp'
+    outfc = r'C:\path\to\your\out_shapefile.shp'
+    distance = 1000
+    select_dissolve_fishnet(infc, outfc, distance)
