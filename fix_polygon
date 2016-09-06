@@ -1,0 +1,83 @@
+import arcpy, os, math
+
+"""
+(1)  A single polygon (not multiple polygons in one file)
+
+(2)  No holes in the middle
+
+(3)  2-km to 15-km (varies) minimum width when a line is drawn between two opposite sides
+
+(4)  WGS84 Geographic projection
+
+(5)  Apply a buffer if needed
+"""
+
+def check_projection(shp):
+    desc = arcpy.Describe(shp)
+    sr = desc.spatialReference
+    # Check the coordinate system
+    if sr.type == "Geographic":
+        return "GCS"
+    elif sr.type == "Projected":
+        return "PCS"
+    # Make sure the shp has a coordinate system
+    elif sr.type == None:
+        return None
+
+def define_projection(source_shp, destination_shp):
+    desc = arcpy.Describe(source_shp)
+    sr = desc.spatialReference
+    arcpy.DefineProjection_management(destination_shp, sr)
+
+def select_dissolve_fishnet(infc, outfc, distance):
+    """
+    Generates a dissolved fishnet polygon intersecting an AOI
+    Parameters:
+    infc: the area of interest polygon
+    outfc: the dissolved output fishnet polygon
+    distance: the distance in meters making up the length and width of the fishnet cells
+              this will be in map units (e.g. meters)
+    """
+    extent = arcpy.Describe(infc).extent
+    xmax = extent.XMax
+    xmin = extent.XMin
+    ymax = extent.YMax
+    ymin = extent.YMin
+
+    origin = '{0} {1}'.format(xmin, ymin)
+    y_axis_coord = '{0} {1}'.format(xmin, ymax)
+    corner = '{0} {1}'.format(xmax, ymax)
+
+    arcpy.CreateFishnet_management("in_memory/fishnet", origin, y_axis_coord, cell_width = distance, cell_height = distance, corner_coord = corner, geometry_type = "POLYGON")
+
+    # Select fishnet by location
+    arcpy.MakeFeatureLayer_management("in_memory/fishnet", "fishnet_lyr")
+    arcpy.SelectLayerByLocation_management(in_layer = "fishnet_lyr", overlap_type = "INTERSECT", select_features = infc, selection_type = "NEW_SELECTION")
+
+    # Dissolve selected fishnet
+    arcpy.Dissolve_management("fishnet_lyr", outfc)
+    define_projection(infc, outfc)
+
+if __name__ == '__main__':
+    outws = r"X:\temp\temp_folder" # Scratch workspace for temp files
+    shp = r'X:\path\to\your\inputshp.shp' #The input shapefile
+    shp_pcs = os.path.join(outws, "shp_pcs.shp") # The projected shp if originally in GCS
+    out_fishnet = os.path.join(outws, "dissolved_fishnet.shp") # The output dissolved fishnet polygon
+
+    if check_projection(shp) == None:
+        print "***WARNING***\nThe input shapefile does not have a defined coordinate system \nYou must define a coordinate system before using this tool"
+        sys.exit()
+
+    elif check_projection(shp) == "PCS":
+        # Run the analysis
+        select_dissolve_fishnet(shp, out_fishnet, distance = 200)
+
+    elif check_projection(shp) == "GCS":
+        # Convert to a generic PCS ("WGS_1984_Web_Mercator_Auxiliary_Sphere") for analysis
+        arcpy.Project_management(shp, shp_pcs, 3857) #
+        select_dissolve_fishnet(shp_pcs, out_fishnet, distance = 200)
+
+    # Clean-up
+    arcpy.Delete_management(shp_pcs)
+
+    print "Processing complete."
